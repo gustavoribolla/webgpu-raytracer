@@ -84,14 +84,15 @@ async function getModule(gpu, paths)
     var module = gpu.createShaderModule({ code });
     var info = await module.getCompilationInfo();
 
-    if (info.messages.length > 0)
+    for (let message of info.messages)
     {
-        for (let message of info.messages)
-        {
-            console.warn(`${message.message} at ${file} line ${message.lineNum}`);
-        }
+        const log = message.type === "error" ? console.error : console.warn;
+        log(`${message.message} at shader line ${message.lineNum}`);
+    }
 
-        throw new Error(`Could not compile ${file}`);
+    if (info.messages.some(message => message.type === "error"))
+    {
+        throw new Error("Could not compile WGSL shader");
     }
 
     return module;

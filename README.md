@@ -1,47 +1,84 @@
-## WGSL Raytracer Template
-Template básico de um Ray Tracer em WGSL (WEBGPU). Tudo o que precisa para fazer o projeto esta aqui.
+# WebGPU Ray Tracer
 
-### ⚠️ Atenção
+Renderizador baseado em raios desenvolvido em **WGSL e WebGPU** para a disciplina de **Computação Gráfica** do Insper (Projeto 3).
 
-O projeto provavelmente não vai rodar em linux, já que a GPU não fica acessível pro WGSL.
+Este repositório utiliza o template do curso e está sendo desenvolvido por etapas. **A implementação atual contempla as cenas do nível D:** `Basic`, `Metal` e `Fuzz`.
 
-### Instruções
-Faça um fork do projeto, clone e abra no Visual Studio (ou outro software, mas recomendo esse)
+## Execução
 
-Baixe (se no visual studio) -> **Name: Live Server - VS Marketplace Link:** [link para o marketplace](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer)
+Abra um terminal na raiz do projeto e execute:
 
-Aperte ```CTRL + Shift + P``` e selecione ```Live Server```. Um browser com o projeto rodando deve abrir.
+```bash
+python -m http.server 8000
+```
 
-### Funções para implementar/complementar (olhe a sessão de notas para mais detalhes)
-- ```hitsphere```
-- ```render```
-- ```trace```
-- ```check_ray_collision```
-- ```lambertian```
-- ```metal```
-- ```emmisive```
-- ```dielectric``` (quando smoothness < 0.0)
+Acesse <http://localhost:8000/> no Chrome ou Edge com suporte a WebGPU. Alternativamente, use a extensão **Live Server** do VS Code. Não abra o `index.html` diretamente sem um servidor HTTP.
 
-### Controles
-Você pode controlar qualquer parametro com o GUI ao lado.
+Na interface lateral, selecione as cenas em **Scene**. O projeto inicia com `Basic` para facilitar a verificação das funcionalidades já implementadas.
 
-**Dica**: Você pode clicar no parametro e fazer um scroll para mudar ele de maneira smooth.
-Para mover a camera, use WASDQEXZ. Para rodar, use as setas.
+## Funcionalidades
 
-### Dicas
-Procure pelos comentários no código para te ajudar. Dê uma olhada nos outros arquivos ```.wgsl``` além do ```raytracer.wgsl```, várias funções que você vai precisar já estão disponíveis lá, prontas para usar.
+| Nível | Cenas | Estado |
+| --- | --- | --- |
+| D | Basic, Metal, Fuzz | Implementação adicionada |
+| C | Specular, Emissive | Pendente |
+| C+ | Dielectric, Spheres, Night | Pendente |
+| B | Cubes, Cornell, Mirror, Infinite | Pendente |
+| B+ | Bunny, Suzanne e cena própria | Pendente |
+| A | Nova primitiva geométrica | Pendente |
+| A+ | Rotation, Everything | Pendente |
 
-⚠️ A especularidade é branca! Se na cena metálica você estiver vendo as cores erradas, procure fazer um ```mix``` entre a cor especular e a cor que vem do metalico e lambertiano.
+A presença de uma cena no seletor **não significa** que ela já esteja implementada: o template traz as definições de todas as cenas desde o início.
 
-### Nota
-You can compute your grade based on the scenes you managed to render. You can always check here (https://gubebra.itch.io/raytracing) to validate your implementation
-- D: ```"Basic", "Metal", "Fuzz"```
-- C: ```"Specular", "Emissive"```
-- C+: ```"Dielectric", "Spheres", "Night"```
-- B: ```"Cubes", "Cornell", "Mirror", "Infinite"```
-- B+: ```"Bunny", "Suzanne"``` e Crie uma cena nova
-- A: Adicione uma nova primitiva geometrica
-- A+: ```"Rotation", "Everything"```
+### Nível D: como foi feito
 
-### Entrega:
-Via Blackboard, entregue o link do git.
+- `src/shaders/shapes.wgsl` — `hit_sphere`: resolve a equação quadrática de interseção raio-esfera, escolhe o primeiro encontro válido e calcula a normal.
+- `src/shaders/raytracer.wgsl` — `check_ray_collision`: encontra a esfera mais próxima atingida pelo raio e retorna sua cor e seu material.
+- `src/shaders/raytracer.wgsl` — `lambertian`: sorteia uma direção no hemisfério da normal para reflexões difusas (cena `Basic`).
+- `src/shaders/raytracer.wgsl` — `metal`: calcula a direção refletida com `reflect` e acrescenta rugosidade com `fuzz` (cenas `Metal` e `Fuzz`).
+- `src/shaders/raytracer.wgsl` — `trace`: percorre os raios refletidos até encontrar o ambiente ou atingir o limite de reflexões.
+- `src/shaders/raytracer.wgsl` — `render`: gera raios por pixel, faz múltiplas amostras, calcula a média e acumula os resultados entre quadros.
+
+As demais primitivas e materiais mais avançados ainda não estão integrados ao traçado de raios.
+
+## Como testar o nível D
+
+1. Selecione **Basic**: devem aparecer uma esfera vermelha, o solo cinza e o céu em gradiente, com material difuso.
+2. Selecione **Metal**: devem aparecer esferas coloridas com reflexos metálicos nítidos.
+3. Selecione **Fuzz**: compare as três esferas metálicas; rugosidades diferentes devem produzir reflexos mais nítidos ou mais espalhados.
+4. Aumente **Samples Per Pixel** para reduzir ruído e **Max Bounces** para permitir mais reflexões, caso necessário.
+
+A qualidade de imagem pode mudar durante o acúmulo progressivo de amostras. Para inspecionar erros de WGSL ou WebGPU, abra as ferramentas de desenvolvedor do navegador (F12 → Console).
+
+## Controles
+
+- **W/A/S/D/Q/E**: movimentação da câmera.
+- **Setas**: orientação da câmera.
+- **Z/X**: rotação adicional.
+- **Scene**: seleção de cenas pré-configuradas.
+- **Save Image**: salva a imagem renderizada.
+
+## Estrutura principal
+
+```text
+webgpu-raytracer/
+├── index.html
+├── main.js
+├── src/
+│   ├── objects.js
+│   ├── scenes.js
+│   ├── util.js
+│   └── shaders/
+│       ├── raytracer.wgsl
+│       ├── shapes.wgsl
+│       ├── rng.wgsl
+│       └── utils.wgsl
+└── media/
+```
+
+## Referências
+
+- [Template de Ray Tracing WGSL da disciplina](https://github.com/Gustavobb/raytracing-wgsl-template)
+- [Referência visual das cenas do projeto](https://gubebra.itch.io/raytracing)
+
+**Entrega:** 20/11/2026, via Blackboard (link do repositório Git).

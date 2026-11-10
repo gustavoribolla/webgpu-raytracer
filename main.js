@@ -129,7 +129,7 @@ performanceFolder.add(performanceStats, 'fps').name("fps").listen().disable();
 performanceFolder.add(performanceStats, 'ms').name("ms").listen().disable();
 
 let scenesFolder = gui.addFolder("Scene");
-const scenesNames = { name: "Spheres"};
+const scenesNames = { name: availableScenes.Basic };
 
 scenesFolder.add(scenesNames, 'name', availableScenes).name("Scene").listen().onChange( function() { getScene(scenesNames.name); });
 var cameraVelocityConstant = 5.0;
@@ -431,7 +431,7 @@ async function getScene(index)
 
 function setup()
 {
-    getScene(0);
+    getScene(availableScenes.Basic);
 }
 
 function writeUniforms()

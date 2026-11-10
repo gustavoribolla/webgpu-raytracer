@@ -151,28 +151,55 @@ fn envoriment_color(direction: vec3f, color1: vec3f, color2: vec3f) -> vec3f
   return col;
 }
 
+// Percorre as esferas da cena e devolve a colisao mais proxima.
+// Os demais tipos de geometria serao adicionados em etapas posteriores.
 fn check_ray_collision(r: ray, max: f32) -> hit_record
 {
-  var spheresCount = i32(uniforms[19]);
-  var quadsCount = i32(uniforms[20]);
-  var boxesCount = i32(uniforms[21]);
-  var trianglesCount = i32(uniforms[22]);
-  var meshCount = i32(uniforms[27]);
+  let spheresCount = i32(uniforms[19]);
+  var closest = hit_record(min(max, RAY_TMAX), vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
 
-  var record = hit_record(RAY_TMAX, vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
-  var closest = record;
+  for (var i = 0; i < spheresCount; i = i + 1)
+  {
+    let current_sphere = spheresb[i];
+    var candidate = hit_record(closest.t, vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
+    hit_sphere(current_sphere.transform.xyz, current_sphere.transform.w, r, &candidate, closest.t);
+
+    if (candidate.hit_anything)
+    {
+      candidate.object_color = current_sphere.color;
+      candidate.object_material = current_sphere.material;
+      closest = candidate;
+    }
+  }
 
   return closest;
 }
 
-fn lambertian(normal : vec3f, absorption: f32, random_sphere: vec3f, rng_state: ptr<function, u32>) -> material_behaviour
+// Reflexao difusa: sorteia uma direcao no hemisferio da normal.
+fn lambertian(normal: vec3f, absorption: f32, random_sphere: vec3f, rng_state: ptr<function, u32>) -> material_behaviour
 {
-  return material_behaviour(true, vec3f(0.0));
+  if (rng_next_float(rng_state) < clamp(absorption, 0.0, 1.0))
+  {
+    return material_behaviour(false, vec3f(0.0));
+  }
+
+  var scatter_direction = normal + random_sphere;
+  if (dot(scatter_direction, scatter_direction) < 0.000001)
+  {
+    scatter_direction = normal;
+  }
+
+  return material_behaviour(true, normalize(scatter_direction));
 }
 
-fn metal(normal : vec3f, direction: vec3f, fuzz: f32, random_sphere: vec3f) -> material_behaviour
+// Reflexao metalica: 'fuzz' acrescenta rugosidade ao raio refletido.
+fn metal(normal: vec3f, direction: vec3f, fuzz: f32, random_sphere: vec3f) -> material_behaviour
 {
-  return material_behaviour(false, vec3f(0.0));
+  let reflected = reflect(normalize(direction), normal);
+  let scattered = normalize(reflected + clamp(fuzz, 0.0, 1.0) * random_sphere);
+  let valid = dot(scattered, normal) > 0.0;
+
+  return material_behaviour(valid, scattered);
 }
 
 fn dielectric(normal : vec3f, r_direction: vec3f, refraction_index: f32, frontface: bool, random_sphere: vec3f, fuzz: f32, rng_state: ptr<function, u32>) -> material_behaviour
@@ -185,61 +212,101 @@ fn emmisive(color: vec3f, light: f32) -> material_behaviour
   return material_behaviour(false, vec3f(0.0));
 }
 
+// Segue o caminho da luz pelas reflexoes sucessivas (path tracing simples).
+// Nivel D: materiais difusos e metalicos, incluindo reflexoes rugosas.
 fn trace(r: ray, rng_state: ptr<function, u32>) -> vec3f
 {
-  var maxbounces = i32(uniforms[2]);
-  var light = vec3f(0.0);
-  var color = vec3f(1.0);
-  var r_ = r;
-  
-  var backgroundcolor1 = int_to_rgb(i32(uniforms[11]));
-  var backgroundcolor2 = int_to_rgb(i32(uniforms[12]));
-  var behaviour = material_behaviour(true, vec3f(0.0));
+  let maxbounces = max(1, i32(uniforms[2]));
+  let backgroundcolor1 = int_to_rgb(i32(uniforms[11]));
+  let backgroundcolor2 = int_to_rgb(i32(uniforms[12]));
+
+  var radiance = vec3f(0.0);
+  var throughput = vec3f(1.0);
+  var current_ray = r;
 
   for (var j = 0; j < maxbounces; j = j + 1)
   {
+    let hit = check_ray_collision(current_ray, RAY_TMAX);
 
+    if (!hit.hit_anything)
+    {
+      radiance += throughput * envoriment_color(current_ray.direction, backgroundcolor1, backgroundcolor2);
+      break;
+    }
+
+    // A cor da esfera atenua a energia transportada pelo raio.
+    throughput *= hit.object_color.rgb;
+
+    let random_direction = rng_next_vec3_in_unit_sphere(rng_state);
+    let smoothness = clamp(hit.object_material.x, 0.0, 1.0);
+    let absorption = hit.object_material.y;
+    var behaviour = material_behaviour(false, vec3f(0.0));
+
+    // Smoothness = 0: difuso. Smoothness = 1: metal.
+    // Valores intermediarios escolhem estocasticamente o tipo de reflexao.
+    if (rng_next_float(rng_state) < smoothness)
+    {
+      behaviour = metal(hit.normal, current_ray.direction, absorption, random_direction);
+    }
+    else
+    {
+      behaviour = lambertian(hit.normal, absorption, random_direction, rng_state);
+    }
+
+    if (!behaviour.scatter)
+    {
+      break;
+    }
+
+    // Pequeno deslocamento evita uma falsa colisao com a propria superficie.
+    current_ray = ray(hit.p + RAY_TMIN * 2.0 * behaviour.direction, behaviour.direction);
   }
 
-  return light;
+  return radiance;
 }
 
 @compute @workgroup_size(THREAD_COUNT, THREAD_COUNT, 1)
-fn render(@builtin(global_invocation_id) id : vec3u)
+fn render(@builtin(global_invocation_id) id: vec3u)
 {
-    var rez = uniforms[1];
-    var time = u32(uniforms[0]);
+  let rez = uniforms[1];
+  if (id.x >= u32(rez) || id.y >= u32(rez))
+  {
+    return;
+  }
 
-    // init_rng (random number generator) we pass the pixel position, resolution and frame
-    var rng_state = init_rng(vec2(id.x, id.y), vec2(u32(rez)), time);
+  let frame = u32(uniforms[0]);
+  var rng_state = init_rng(id.xy, vec2u(u32(rez)), frame);
 
-    // Get uv
-    var fragCoord = vec2f(f32(id.x), f32(id.y));
-    var uv = (fragCoord + sample_square(&rng_state)) / vec2(rez);
+  let lookfrom = vec3f(uniforms[7], uniforms[8], uniforms[9]);
+  let lookat = vec3f(uniforms[23], uniforms[24], uniforms[25]);
+  let cam = get_camera(lookfrom, lookat, vec3f(0.0, 1.0, 0.0), uniforms[10], 1.0, uniforms[6], uniforms[5]);
 
-    // Camera
-    var lookfrom = vec3(uniforms[7], uniforms[8], uniforms[9]);
-    var lookat = vec3(uniforms[23], uniforms[24], uniforms[25]);
+  let samples_per_pixel = max(1, i32(uniforms[4]));
+  var color = vec3f(0.0);
+  let fragCoord = vec2f(id.xy);
 
-    // Get camera
-    var cam = get_camera(lookfrom, lookat, vec3(0.0, 1.0, 0.0), uniforms[10], 1.0, uniforms[6], uniforms[5]);
-    var samples_per_pixel = i32(uniforms[4]);
+  for (var sample = 0; sample < samples_per_pixel; sample = sample + 1)
+  {
+    let uv = (fragCoord + sample_square(&rng_state)) / vec2f(rez);
+    let primary_ray = get_ray(cam, uv, &rng_state);
+    color += trace(primary_ray, &rng_state);
+  }
 
-    var color = vec3(rng_next_float(&rng_state), rng_next_float(&rng_state), rng_next_float(&rng_state));
+  color /= f32(samples_per_pixel);
 
-    // Steps:
-    // 1. Loop for each sample per pixel
-    // 2. Get ray
-    // 3. Call trace function
-    // 4. Average the color
+  let map_fb = mapfb(id.xy, rez);
+  let previous = rtfb[map_fb];
+  var average = color;
+  var sample_count = 1.0;
 
-    var color_out = vec4(linear_to_gamma(color), 1.0);
-    var map_fb = mapfb(id.xy, rez);
-    
-    // 5. Accumulate the color
-    var should_accumulate = uniforms[3];
+  // Acumulacao progressiva em espaco linear. O contador fica no alpha do
+  // buffer auxiliar; assim uma mudanca de cena pode reiniciar a media.
+  if (uniforms[3] > 0.5 && previous.a > 0.0)
+  {
+    sample_count = min(previous.a + 1.0, 64.0);
+    average = previous.rgb + (color - previous.rgb) / sample_count;
+  }
 
-    // Set the color to the framebuffer
-    rtfb[map_fb] = color_out;
-    fb[map_fb] = color_out;
+  rtfb[map_fb] = vec4f(average, sample_count);
+  fb[map_fb] = vec4f(linear_to_gamma(clamp(average, vec3f(0.0), vec3f(1.0))), 1.0);
 }

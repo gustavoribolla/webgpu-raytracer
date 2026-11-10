@@ -1,6 +1,41 @@
+// Encontra a primeira intersecao valida de um raio com uma esfera.
+// Calcula tambem a normal orientada contra o raio incidente.
 fn hit_sphere(center: vec3f, radius: f32, r: ray, record: ptr<function, hit_record>, max: f32)
 {
+  record.hit_anything = false;
 
+  let oc = r.origin - center;
+  let a = dot(r.direction, r.direction);
+  let half_b = dot(oc, r.direction);
+  let c = dot(oc, oc) - radius * radius;
+  let discriminant = half_b * half_b - a * c;
+
+  if (discriminant < 0.0)
+  {
+    return;
+  }
+
+  let sqrt_d = sqrt(discriminant);
+  var root = (-half_b - sqrt_d) / a;
+
+  if (root < RAY_TMIN || root > max)
+  {
+    root = (-half_b + sqrt_d) / a;
+    if (root < RAY_TMIN || root > max)
+    {
+      return;
+    }
+  }
+
+  let point = ray_at(r, root);
+  let outward_normal = (point - center) / radius;
+  let frontface = dot(r.direction, outward_normal) < 0.0;
+
+  record.t = root;
+  record.p = point;
+  record.frontface = frontface;
+  record.normal = select(-outward_normal, outward_normal, frontface);
+  record.hit_anything = true;
 }
 
 fn hit_quad(r: ray, Q: vec4f, u: vec4f, v: vec4f, record: ptr<function, hit_record>, max: f32)
