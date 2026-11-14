@@ -2,7 +2,7 @@
 
 Renderizador baseado em raios desenvolvido em **WGSL e WebGPU** para a disciplina de **Computação Gráfica** do Insper (Projeto 3).
 
-Este repositório utiliza o template do curso e está sendo desenvolvido por etapas. **A implementação atual contempla as cenas do nível D:** `Basic`, `Metal` e `Fuzz`.
+Este repositório utiliza o template do curso e está sendo desenvolvido por etapas. **A implementação atual contempla os níveis D e C:** `Basic`, `Metal`, `Fuzz`, `Specular` e `Emissive`.
 
 ## Execução
 
@@ -21,7 +21,7 @@ Na interface lateral, selecione as cenas em **Scene**. O projeto inicia com `Bas
 | Nível | Cenas | Estado |
 | --- | --- | --- |
 | D | Basic, Metal, Fuzz | Implementação adicionada |
-| C | Specular, Emissive | Pendente |
+| C | Specular, Emissive | Implementação adicionada |
 | C+ | Dielectric, Spheres, Night | Pendente |
 | B | Cubes, Cornell, Mirror, Infinite | Pendente |
 | B+ | Bunny, Suzanne e cena própria | Pendente |
@@ -39,16 +39,25 @@ A presença de uma cena no seletor **não significa** que ela já esteja impleme
 - `src/shaders/raytracer.wgsl` — `trace`: percorre os raios refletidos até encontrar o ambiente ou atingir o limite de reflexões.
 - `src/shaders/raytracer.wgsl` — `render`: gera raios por pixel, faz múltiplas amostras, calcula a média e acumula os resultados entre quadros.
 
-As demais primitivas e materiais mais avançados ainda não estão integrados ao traçado de raios.
+As demais primitivas e materiais mais avançados ainda não estão integrados ao traçado de raios. A cena `Specular` utiliza uma **caixa emissiva sem rotação** como fonte luminosa; esse suporte pontual não equivale à implementação completa de caixas exigida no nível B.
 
-## Como testar o nível D
+### Nível C: como foi feito
+
+- `src/shaders/raytracer.wgsl` — `trace`: agora considera `material.z` (**Specular**) na probabilidade de reflexão especular, em conjunto com `material.x` (**Smoothness**). Valores menores resultam em mais reflexões difusas; `Metal` e `Fuzz` permanecem com `Specular = 1`.
+- `src/shaders/raytracer.wgsl` — `emissive`: converte cor e intensidade `material.w` (**Light**) em radiância emitida; `trace` soma essa contribuição quando um raio atinge a fonte, inclusive após reflexões.
+- `src/shaders/raytracer.wgsl` — `check_ray_collision`: detecta a caixa luminosa **sem rotação** usada na cena `Specular`, chamando a função `hit_box` já presente no template. Caixas comuns continuam pendentes para o nível B.
+- `src/scenes.js` — as cenas `Specular` e `Emissive` já vieram definidas pelo professor e **não precisaram ser alteradas**.
+
+## Como testar os níveis D e C
 
 1. Selecione **Basic**: devem aparecer uma esfera vermelha, o solo cinza e o céu em gradiente, com material difuso.
 2. Selecione **Metal**: devem aparecer esferas coloridas com reflexos metálicos nítidos.
 3. Selecione **Fuzz**: compare as três esferas metálicas; rugosidades diferentes devem produzir reflexos mais nítidos ou mais espalhados.
-4. Aumente **Samples Per Pixel** para reduzir ruído e **Max Bounces** para permitir mais reflexões, caso necessário.
+4. Selecione **Specular**: compare as três esferas brancas com valores diferentes do campo **Specular**; a caixa emissiva acima delas também deve aparecer.
+5. Selecione **Emissive**: o fundo é preto e a esfera branca à esquerda emite luz; após amostras suficientes, sua luz aparece nos demais objetos.
+6. Aumente **Samples Per Pixel** para reduzir ruído e **Max Bounces** para permitir mais reflexões, caso necessário.
 
-A qualidade de imagem pode mudar durante o acúmulo progressivo de amostras. Para inspecionar erros de WGSL ou WebGPU, abra as ferramentas de desenvolvedor do navegador (F12 → Console).
+Cenas com iluminação indireta (`Emissive`) podem apresentar ruído antes de acumular muitas amostras. A qualidade de imagem pode mudar durante o acúmulo progressivo de amostras. Para inspecionar erros de WGSL ou WebGPU, abra as ferramentas de desenvolvedor do navegador (F12 → Console).
 
 ## Controles
 

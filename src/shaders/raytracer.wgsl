@@ -151,8 +151,9 @@ fn envoriment_color(direction: vec3f, color1: vec3f, color2: vec3f) -> vec3f
   return col;
 }
 
-// Percorre as esferas da cena e devolve a colisao mais proxima.
-// Os demais tipos de geometria serao adicionados em etapas posteriores.
+// Procura a intersecao mais proxima com as esferas da cena.
+// Para a cena Specular (nivel C), tambem detecta caixas emissivas sem rotacao.
+// A implementacao completa de caixas e outras geometrias fica para o nivel B.
 fn check_ray_collision(r: ray, max: f32) -> hit_record
 {
   let spheresCount = i32(uniforms[19]);
@@ -168,6 +169,30 @@ fn check_ray_collision(r: ray, max: f32) -> hit_record
     {
       candidate.object_color = current_sphere.color;
       candidate.object_material = current_sphere.material;
+      closest = candidate;
+    }
+  }
+
+  // A cena Specular utiliza uma pequena caixa luminosa acima das esferas.
+  // Por enquanto, somente caixas emissivas (material.w > 0) sem rotacao
+  // participam das colisoes; caixas comuns sao conteudo do nivel B.
+  let boxesCount = i32(uniforms[21]);
+  for (var i = 0; i < boxesCount; i = i + 1)
+  {
+    let current_box = boxesb[i];
+    if (current_box.material.w <= 0.0)
+    {
+      continue;
+    }
+
+    var candidate = hit_record(closest.t, vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
+    hit_box(r, current_box.center.xyz, current_box.radius.xyz, &candidate, closest.t);
+
+    if (candidate.hit_anything)
+    {
+      candidate.object_color = current_box.color;
+      candidate.object_material = current_box.material;
+      candidate.frontface = dot(r.direction, candidate.normal) < 0.0;
       closest = candidate;
     }
   }
@@ -207,13 +232,15 @@ fn dielectric(normal : vec3f, r_direction: vec3f, refraction_index: f32, frontfa
   return material_behaviour(false, vec3f(0.0));
 }
 
-fn emmisive(color: vec3f, light: f32) -> material_behaviour
+// Materiais emissivos geram radiancia propria (sem depender do ambiente).
+// O quarto componente do material e a intensidade da fonte de luz.
+fn emissive(color: vec3f, intensity: f32) -> vec3f
 {
-  return material_behaviour(false, vec3f(0.0));
+  return color * max(intensity, 0.0);
 }
 
 // Segue o caminho da luz pelas reflexoes sucessivas (path tracing simples).
-// Nivel D: materiais difusos e metalicos, incluindo reflexoes rugosas.
+// Nivel D: difuso, metal e fuzz. Nivel C: especularidade e emissao de luz.
 fn trace(r: ray, rng_state: ptr<function, u32>) -> vec3f
 {
   let maxbounces = max(1, i32(uniforms[2]));
@@ -234,17 +261,27 @@ fn trace(r: ray, rng_state: ptr<function, u32>) -> vec3f
       break;
     }
 
-    // A cor da esfera atenua a energia transportada pelo raio.
+    // Uma fonte de luz contribui com radiancia e encerra o caminho.
+    // A intensidade de emissao esta no quarto componente do material.
+    if (hit.object_material.w > 0.0)
+    {
+      radiance += throughput * emissive(hit.object_color.rgb, hit.object_material.w);
+      break;
+    }
+
+    // As superficies nao emissivas atenuam a luz pela sua cor.
     throughput *= hit.object_color.rgb;
 
     let random_direction = rng_next_vec3_in_unit_sphere(rng_state);
     let smoothness = clamp(hit.object_material.x, 0.0, 1.0);
     let absorption = hit.object_material.y;
+    let specular = clamp(hit.object_material.z, 0.0, 1.0);
     var behaviour = material_behaviour(false, vec3f(0.0));
 
-    // Smoothness = 0: difuso. Smoothness = 1: metal.
-    // Valores intermediarios escolhem estocasticamente o tipo de reflexao.
-    if (rng_next_float(rng_state) < smoothness)
+    // Smoothness controla a parcela metalica; Specular controla a chance
+    // de reflexao especular. Valores menores deixam a superficie mais difusa.
+    // As cenas Metal e Fuzz mantem Specular = 1 e seguem funcionando como antes.
+    if (rng_next_float(rng_state) < smoothness * specular)
     {
       behaviour = metal(hit.normal, current_ray.direction, absorption, random_direction);
     }
