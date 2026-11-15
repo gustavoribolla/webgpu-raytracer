@@ -2,7 +2,7 @@
 
 Renderizador baseado em raios desenvolvido em **WGSL e WebGPU** para a disciplina de **Computação Gráfica** do Insper (Projeto 3).
 
-Este repositório utiliza o template do curso e está sendo desenvolvido por etapas. **A implementação atual contempla os níveis D e C:** `Basic`, `Metal`, `Fuzz`, `Specular` e `Emissive`.
+Este repositório utiliza o template do curso e está sendo desenvolvido por etapas. **A implementação atual contempla os níveis D, C e C+:** `Basic`, `Metal`, `Fuzz`, `Specular`, `Emissive`, `Dielectric`, `Spheres` e `Night`.
 
 ## Execução
 
@@ -22,7 +22,7 @@ Na interface lateral, selecione as cenas em **Scene**. O projeto inicia com `Bas
 | --- | --- | --- |
 | D | Basic, Metal, Fuzz | Implementação adicionada |
 | C | Specular, Emissive | Implementação adicionada |
-| C+ | Dielectric, Spheres, Night | Pendente |
+| C+ | Dielectric, Spheres, Night | Implementação adicionada |
 | B | Cubes, Cornell, Mirror, Infinite | Pendente |
 | B+ | Bunny, Suzanne e cena própria | Pendente |
 | A | Nova primitiva geométrica | Pendente |
@@ -48,16 +48,27 @@ As demais primitivas e materiais mais avançados ainda não estão integrados ao
 - `src/shaders/raytracer.wgsl` — `check_ray_collision`: detecta a caixa luminosa **sem rotação** usada na cena `Specular`, chamando a função `hit_box` já presente no template. Caixas comuns continuam pendentes para o nível B.
 - `src/scenes.js` — as cenas `Specular` e `Emissive` já vieram definidas pelo professor e **não precisaram ser alteradas**.
 
-## Como testar os níveis D e C
+### Nível C+: como foi feito
+
+- `src/shaders/raytracer.wgsl` — `dielectric`: calcula a refração de raios usando a lei de Snell (`refract`) e a reflexão (`reflect`). A aproximação de Schlick determina a probabilidade de reflexão conforme o ângulo de incidência, com tratamento de reflexão interna total.
+- `src/shaders/raytracer.wgsl` — `trace`: identifica como dielétricas as superfícies com `material.x < 0` (convenção já utilizada nas cenas do template) e chama `dielectric` antes de tratar os materiais opacos. Para os vidros do projeto, foi adotado índice de refração **1,5**. O componente `material.y` acrescenta rugosidade ao raio transmitido/refletido; `0` corresponde a vidro liso.
+- `src/shaders/shapes.wgsl` — `hit_sphere`: já determinava se a colisão ocorreu na face externa (`frontface`) e orientava a normal contra o raio; essas informações são utilizadas por `dielectric` para distinguir a entrada e a saída do vidro.
+- `src/scenes.js` — as cenas `Dielectric`, `Spheres` e `Night` **não foram alteradas**. `Spheres` usa a geração de pequenas esferas aleatórias do template, com diferentes materiais, e os recursos de profundidade de campo já existentes na câmera (`get_camera`/`get_ray`). `Night` reutiliza essa composição, mas com ambiente escuro e fontes emissivas aleatórias.
+- `main.js` — já havia espaço para **70 esferas**, suficiente para as 68 presentes na configuração padrão de `Spheres` e `Night` (64 aleatórias + 4 esferas fixas).
+
+## Como testar os níveis D, C e C+
 
 1. Selecione **Basic**: devem aparecer uma esfera vermelha, o solo cinza e o céu em gradiente, com material difuso.
 2. Selecione **Metal**: devem aparecer esferas coloridas com reflexos metálicos nítidos.
 3. Selecione **Fuzz**: compare as três esferas metálicas; rugosidades diferentes devem produzir reflexos mais nítidos ou mais espalhados.
 4. Selecione **Specular**: compare as três esferas brancas com valores diferentes do campo **Specular**; a caixa emissiva acima delas também deve aparecer.
 5. Selecione **Emissive**: o fundo é preto e a esfera branca à esquerda emite luz; após amostras suficientes, sua luz aparece nos demais objetos.
-6. Aumente **Samples Per Pixel** para reduzir ruído e **Max Bounces** para permitir mais reflexões, caso necessário.
+6. Selecione **Dielectric**: a esfera grande no centro deve ficar transparente, distorcendo as esferas coloridas ao fundo. Observe os reflexos nas bordas e a refração ao atravessar a superfície.
+7. Selecione **Spheres**: uma cena com várias esferas pequenas aleatórias, materiais difusos, metálicos, emissivos e dielétricos. A câmera utiliza profundidade de campo.
+8. Selecione **Night**: a mesma composição aleatória de `Spheres`, com fundo preto e iluminação solar reduzida; as esferas emissivas são as principais fontes de luz. Cada nova seleção cria uma distribuição aleatória diferente.
+9. Aumente **Samples Per Pixel** para reduzir ruído e **Max Bounces** para permitir mais reflexões/refrações, caso necessário.
 
-Cenas com iluminação indireta (`Emissive`) podem apresentar ruído antes de acumular muitas amostras. A qualidade de imagem pode mudar durante o acúmulo progressivo de amostras. Para inspecionar erros de WGSL ou WebGPU, abra as ferramentas de desenvolvedor do navegador (F12 → Console).
+Cenas com iluminação indireta (`Emissive`, `Spheres` e `Night`) podem apresentar ruído antes de acumular muitas amostras. A qualidade de imagem pode mudar durante o acúmulo progressivo de amostras. Para inspecionar erros de WGSL ou WebGPU, abra as ferramentas de desenvolvedor do navegador (F12 → Console).
 
 ## Controles
 

@@ -227,9 +227,34 @@ fn metal(normal: vec3f, direction: vec3f, fuzz: f32, random_sphere: vec3f) -> ma
   return material_behaviour(valid, scattered);
 }
 
+// Vidro: usa a lei de Snell para refratar e a aproximacao de Schlick para
+// decidir quando o raio deve refletir. A normal ja esta orientada contra o raio.
 fn dielectric(normal : vec3f, r_direction: vec3f, refraction_index: f32, frontface: bool, random_sphere: vec3f, fuzz: f32, rng_state: ptr<function, u32>) -> material_behaviour
-{  
-  return material_behaviour(false, vec3f(0.0));
+{
+  let incident = normalize(r_direction);
+  let eta = select(refraction_index, 1.0 / refraction_index, frontface);
+  let cos_theta = min(dot(-incident, normal), 1.0);
+  let sin_theta = sqrt(max(0.0, 1.0 - cos_theta * cos_theta));
+
+  // Reflete sempre que a refracao seria impossivel (reflexao interna total).
+  let total_internal_reflection = eta * sin_theta > 1.0;
+  var r0 = (1.0 - refraction_index) / (1.0 + refraction_index);
+  r0 *= r0;
+  let reflectance = r0 + (1.0 - r0) * pow(1.0 - cos_theta, 5.0);
+
+  var scattered: vec3f;
+  if (total_internal_reflection || rng_next_float(rng_state) < reflectance)
+  {
+    scattered = reflect(incident, normal);
+  }
+  else
+  {
+    scattered = refract(incident, normal, eta);
+  }
+
+  // O campo material.y permite um vidro levemente fosco (0 = vidro liso).
+  scattered = normalize(scattered + clamp(fuzz, 0.0, 1.0) * random_sphere);
+  return material_behaviour(true, scattered);
 }
 
 // Materiais emissivos geram radiancia propria (sem depender do ambiente).
@@ -240,7 +265,7 @@ fn emissive(color: vec3f, intensity: f32) -> vec3f
 }
 
 // Segue o caminho da luz pelas reflexoes sucessivas (path tracing simples).
-// Nivel D: difuso, metal e fuzz. Nivel C: especularidade e emissao de luz.
+// Nivel D: difuso e metal; C: especular e emissivo; C+: refracao dieletrica.
 fn trace(r: ray, rng_state: ptr<function, u32>) -> vec3f
 {
   let maxbounces = max(1, i32(uniforms[2]));
@@ -278,10 +303,16 @@ fn trace(r: ray, rng_state: ptr<function, u32>) -> vec3f
     let specular = clamp(hit.object_material.z, 0.0, 1.0);
     var behaviour = material_behaviour(false, vec3f(0.0));
 
-    // Smoothness controla a parcela metalica; Specular controla a chance
-    // de reflexao especular. Valores menores deixam a superficie mais difusa.
-    // As cenas Metal e Fuzz mantem Specular = 1 e seguem funcionando como antes.
-    if (rng_next_float(rng_state) < smoothness * specular)
+    // material.x negativo identifica vidro no template (Dielectric/Spheres).
+    // Para esse material, material.y funciona como rugosidade de transmissao;
+    // a luz pode tanto refratar quanto refletir dependendo do angulo.
+    if (hit.object_material.x < 0.0)
+    {
+      behaviour = dielectric(hit.normal, current_ray.direction, 1.5,
+                             hit.frontface, random_direction, absorption, rng_state);
+    }
+    // Nos materiais opacos, Smoothness e Specular mantem a regra anterior.
+    else if (rng_next_float(rng_state) < smoothness * specular)
     {
       behaviour = metal(hit.normal, current_ray.direction, absorption, random_direction);
     }
