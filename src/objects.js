@@ -44,10 +44,24 @@ class Box
     constructor(center, color, rotation, radius, material)
     {
         this.center = [center[0], center[1], center[2], 0.0];
-        this.radius = [radius[0], radius[1], radius[2], 0.0];
+        // radius[3] (W) diz se e caixa (0) ou cilindro (1); o PrintScene preserva o valor
+        this.radius = [radius[0], radius[1], radius[2], radius[3] ?? 0.0];
         this.rotation = [rotation[0], rotation[1], rotation[2], 0.0];
         this.color = [color[0], color[1], color[2], 1.0];
         this.material = material;
+    }
+}
+
+// Primitiva nova: cilindro com tampas. Reaproveita o layout da caixa no buffer
+// (centro, raio, rotacao, cor, material), entao gira igual a uma caixa.
+// radius = [raio, metade da altura, raio, 1]; o 1 no W avisa o shader.
+class Cylinder extends Box
+{
+    name = "Cylinder";
+
+    constructor(center, color, rotation, radius, halfHeight, material)
+    {
+        super(center, color, rotation, [radius, halfHeight, radius, 1.0], material);
     }
 }
 
@@ -99,4 +113,4 @@ class Mesh
     }
 }
 
-export { Sphere, Quad, Box, Triangle, Mesh };
+export { Sphere, Quad, Box, Cylinder, Triangle, Mesh };

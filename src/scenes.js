@@ -1,4 +1,4 @@
-import { Sphere, Quad, Box, Mesh } from './objects.js';
+import { Sphere, Quad, Box, Cylinder, Mesh } from './objects.js';
 import { loadMesh, getObjBoundingBox, getSpheresRandom } from './util.js';
 
 const groundDefault = new Sphere([0, -1001, 0], [0.7, 0.7, 0.7], 1000, [0.9, 0.0, 0.6, 0.0]);
@@ -502,6 +502,60 @@ async function Everything()
         focusAngle: 0.0,
         sunIntensity: 1.0,
         samplesPerPixel: 1.0,
+        maxBounces: 10.0
+    };
+}
+
+// Cena nova (B+) feita para mostrar a primitiva nova (A): um templo circular
+// de colunas cilindricas ao entardecer, com uma Suzanne de ouro no centro.
+// Obs.: nada de funcoes auxiliares aqui, o seletor de cenas lista toda funcao do arquivo.
+async function Templo()
+{
+    let center = [0, 0, -4.2];
+
+    let spheres = [
+        new Sphere([0, -1001, 0], [0.82, 0.8, 0.78], 1000, [0.85, 0, 0.4, 0]),
+        new Sphere([0.0, -0.75, -2.9], [1, 1, 1], 0.25, [-1, 0, 0, 0]),
+        new Sphere([-0.62, -0.82, -3.2], [0.4, 0.7, 1], 0.18, [0, 0, 0, 3]),
+        new Sphere([0.68, -0.85, -3.3], [1, 0.4, 0.6], 0.15, [0, 0, 0, 3]),
+    ];
+
+    let boxes = [
+        // base, teto luminoso e pedestal
+        new Cylinder([center[0], -0.95, center[2]], [0.9, 0.88, 0.84], [0, 0, 0], 2.1, 0.05, [0, 0, 0, 0]),
+        new Cylinder([center[0], 1.35, center[2]], [1, 0.85, 0.6], [0, 0, 0], 1.9, 0.04, [0, 0, 0, 1.5]),
+        new Cylinder([center[0], -0.55, center[2]], [0.15, 0.15, 0.18], [0, 0, 0], 0.42, 0.35, [0.9, 0, 0.8, 0]),
+
+        // cilindros soltos: um de vidro deitado e um de cobre inclinado
+        new Cylinder([1.25, -0.72, -2.6], [0.85, 0.95, 1], [0, 0.6, 1.5708], 0.18, 0.42, [-1, 0, 0, 0]),
+        new Cylinder([-1.3, -0.65, -2.7], [0.95, 0.5, 0.3], [0.25, 0, 0.2], 0.22, 0.35, [1, 0.15, 1, 0]),
+    ];
+
+    // seis colunas em volta do centro
+    for (let i = 0; i < 6; i++)
+    {
+        let angle = i * Math.PI / 3;
+        let position = [center[0] + 1.65 * Math.cos(angle), 0.2, center[2] + 1.65 * Math.sin(angle)];
+        boxes.push(new Cylinder(position, [0.93, 0.91, 0.87], [0, 0, 0], 0.14, 1.1, [0, 0, 0, 0]));
+    }
+
+    let { verticesMesh, trianglesMesh, triangles } = await loadMesh('./media/suzanne.obj');
+    let meshes = [new Mesh([center[0], 0.21, center[2]], [0.42, 0.42, 0.42], [0, 0.35, 0], [1.0, 0.76, 0.33, 1.0], [1.0, 0.08, 1.0, 0.0], 0, 0, triangles.length)];
+    let { min, max } = getObjBoundingBox(verticesMesh);
+    meshes[0].setBoundingBox(min, max);
+
+    return {
+        spheres: spheres,
+        quads: [],
+        boxes: boxes,
+        triangles: triangles,
+        meshes: meshes,
+        backgroundColor1: [1.0, 0.5, 0.3],
+        backgroundColor2: [0.15, 0.2, 0.45],
+        focusDistance: 4.0,
+        focusAngle: 0.0,
+        sunIntensity: 1.0,
+        samplesPerPixel: 2.0,
         maxBounces: 10.0
     };
 }

@@ -151,12 +151,22 @@ fn envoriment_color(direction: vec3f, color1: vec3f, color2: vec3f) -> vec3f
   return col;
 }
 
-// Procura a intersecao mais proxima com as esferas da cena.
-// Para a cena Specular (nivel C), tambem detecta caixas emissivas sem rotacao.
-// A implementacao completa de caixas e outras geometrias fica para o nivel B.
+// Deixa a normal sempre contra o raio e marca se ele bateu pelo lado de fora.
+// O dieletrico usa o frontface para saber se o raio esta entrando ou saindo.
+fn set_face_normal(record: ptr<function, hit_record>, direction: vec3f, outward_normal: vec3f)
+{
+  record.frontface = dot(direction, outward_normal) < 0.0;
+  record.normal = select(-outward_normal, outward_normal, record.frontface);
+}
+
+// Procura a intersecao mais proxima entre todos os objetos da cena:
+// esferas, quads, caixas/cilindros (com rotacao) e malhas de triangulos.
 fn check_ray_collision(r: ray, max: f32) -> hit_record
 {
   let spheresCount = i32(uniforms[19]);
+  let quadsCount = i32(uniforms[20]);
+  let boxesCount = i32(uniforms[21]);
+  let meshCount = i32(uniforms[27]);
   var closest = hit_record(min(max, RAY_TMAX), vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
 
   for (var i = 0; i < spheresCount; i = i + 1)
@@ -173,27 +183,86 @@ fn check_ray_collision(r: ray, max: f32) -> hit_record
     }
   }
 
-  // A cena Specular utiliza uma pequena caixa luminosa acima das esferas.
-  // Por enquanto, somente caixas emissivas (material.w > 0) sem rotacao
-  // participam das colisoes; caixas comuns sao conteudo do nivel B.
-  let boxesCount = i32(uniforms[21]);
+  // Quads (paredes da Cornell, espelhos). Sao de um lado so: o hit_quad do
+  // template ignora o raio que chega por tras, entao todo hit e pela frente.
+  for (var i = 0; i < quadsCount; i = i + 1)
+  {
+    let current_quad = quadsb[i];
+    var candidate = hit_record(closest.t, vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
+    hit_quad(r, current_quad.Q, current_quad.u, current_quad.v, &candidate, closest.t);
+
+    if (candidate.hit_anything)
+    {
+      candidate.frontface = true;
+      candidate.object_color = current_quad.color;
+      candidate.object_material = current_quad.material;
+      closest = candidate;
+    }
+  }
+
+  // Caixas e cilindros. A rotacao (angulos de Euler) vira um quaternion e o raio
+  // e girado com ele (rotate_ray_quaternion do template) para o espaco local do
+  // objeto, onde fica alinhado aos eixos. A normal volta para o mundo com o
+  // quaternion inverso. radius.w = 1 marca um cilindro.
   for (var i = 0; i < boxesCount; i = i + 1)
   {
     let current_box = boxesb[i];
-    if (current_box.material.w <= 0.0)
+    let q = quaternion_from_euler(current_box.rotation.xyz);
+    let local_ray = rotate_ray_quaternion(ray(r.origin - current_box.center.xyz, r.direction), vec3f(0.0), q);
+
+    var candidate = hit_record(closest.t, vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
+    if (current_box.radius.w > 0.5)
+    {
+      hit_cylinder(local_ray, current_box.radius.x, current_box.radius.y, &candidate, closest.t);
+    }
+    else
+    {
+      hit_box(local_ray, vec3f(0.0), current_box.radius.xyz, &candidate, closest.t);
+    }
+
+    if (candidate.hit_anything)
+    {
+      candidate.p = ray_at(r, candidate.t);
+      set_face_normal(&candidate, r.direction, normalize(rotate_vector(candidate.normal, q_inverse(q))));
+      candidate.object_color = current_box.color;
+      candidate.object_material = current_box.material;
+      closest = candidate;
+    }
+  }
+
+  // Malhas (Bunny, Suzanne): o raio vai para o espaco do .obj tirando a posicao,
+  // girando (mesma convencao das caixas) e dividindo pela escala. A direcao nao
+  // e normalizada de proposito, assim o t local e o mesmo t do mundo.
+  for (var m = 0; m < meshCount; m = m + 1)
+  {
+    let current_mesh = meshb[m];
+    let q = quaternion_from_euler(current_mesh.rotation.xyz);
+    let scale = current_mesh.scale.xyz;
+    let rotated = rotate_ray_quaternion(ray(r.origin - current_mesh.transform.xyz, r.direction), vec3f(0.0), q);
+    let local_ray = ray(rotated.origin / scale, rotated.direction / scale);
+
+    // Bounding box primeiro: se o raio nem passa perto, pula todos os triangulos.
+    if (!AABB_intersect(local_ray, current_mesh.min.xyz, current_mesh.max.xyz))
     {
       continue;
     }
 
-    var candidate = hit_record(closest.t, vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
-    hit_box(r, current_box.center.xyz, current_box.radius.xyz, &candidate, closest.t);
-
-    if (candidate.hit_anything)
+    for (var t = i32(current_mesh.start); t < i32(current_mesh.end); t = t + 1)
     {
-      candidate.object_color = current_box.color;
-      candidate.object_material = current_box.material;
-      candidate.frontface = dot(r.direction, candidate.normal) < 0.0;
-      closest = candidate;
+      let tri = trianglesb[t];
+      var candidate = hit_record(closest.t, vec3f(0.0), vec3f(0.0), vec4f(0.0), vec4f(0.0), false, false);
+      hit_triangle(local_ray, tri.v0.xyz, tri.v1.xyz, tri.v2.xyz, &candidate, closest.t);
+
+      if (candidate.hit_anything)
+      {
+        // Normal com escala nao uniforme: divide pela escala (inversa transposta).
+        let world_normal = normalize(rotate_vector(candidate.normal / scale, q_inverse(q)));
+        candidate.p = ray_at(r, candidate.t);
+        set_face_normal(&candidate, r.direction, world_normal);
+        candidate.object_color = current_mesh.color;
+        candidate.object_material = current_mesh.material;
+        closest = candidate;
+      }
     }
   }
 
@@ -315,6 +384,11 @@ fn trace(r: ray, rng_state: ptr<function, u32>) -> vec3f
     else if (rng_next_float(rng_state) < smoothness * specular)
     {
       behaviour = metal(hit.normal, current_ray.direction, absorption, random_direction);
+
+      // Smoothness < 1 deixa o reflexo borrado (chao da Cubes e da Specular):
+      // a direcao refletida e misturada com uma direcao difusa.
+      let diffuse_direction = normalize(hit.normal + rng_next_vec3_in_unit_sphere(rng_state));
+      behaviour.direction = normalize(mix(diffuse_direction, behaviour.direction, smoothness));
     }
     else
     {
